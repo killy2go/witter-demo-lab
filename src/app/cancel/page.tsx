@@ -28,13 +28,6 @@ export default function Cancel() {
           >
             Zurück zur Demo
           </Link>
-
-          <Link
-            href="/"
-            className="inline-flex items-center justify-center rounded-lg border px-4 py-2 text-slate-700 hover:bg-slate-50"
-          >
-            Nochmal testen
-          </Link>
         </div>
 
         <p className="mt-4 text-xs text-slate-500">Auto-Redirect in ~4 Sekunden.</p>
