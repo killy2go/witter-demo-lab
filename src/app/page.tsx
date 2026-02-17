@@ -302,7 +302,7 @@ export default function Page() {
           © {new Date().getFullYear()} Witter Labs · Demo only
         </footer>
       </div>
-      <ChatWidget />
+      <ChatWidget logEvent={logEvent} />
     </main>
   );
 }
