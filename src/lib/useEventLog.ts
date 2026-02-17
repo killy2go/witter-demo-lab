@@ -6,14 +6,14 @@ export type DemoEvent = {
   id: string;
   type: string;
   timestamp: number;
-  meta?: Record<string, any>;
+  meta?: Record<string, unknown>;
 };
 
 export function useEventLog() {
   const [events, setEvents] = useState<DemoEvent[]>([]);
 
   const logEvent = useCallback(
-    (type: string, meta?: Record<string, any>) => {
+    (type: string, meta?: Record<string, unknown>) => {
       setEvents((prev) => [
         {
           id: crypto.randomUUID(),

@@ -9,12 +9,13 @@ type ChatMessage = {
 
 type ChatWidgetProps = {
   logEvent?: (type: string, meta?: Record<string, unknown>) => void;
+  onOpenChange?: (isOpen: boolean) => void;
 };
 
 const FOCUSABLE_SELECTOR =
   'a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex="-1"])';
 
-export function ChatWidget({ logEvent }: ChatWidgetProps) {
+export function ChatWidget({ logEvent, onOpenChange }: ChatWidgetProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([
@@ -30,6 +31,15 @@ export function ChatWidget({ logEvent }: ChatWidgetProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const openButtonRef = useRef<HTMLButtonElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    onOpenChange?.(isOpen);
+    if (isOpen) {
+      logEvent?.("chat_opened");
+    } else {
+      logEvent?.("chat_closed");
+    }
+  }, [isOpen, onOpenChange, logEvent]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -123,10 +133,7 @@ export function ChatWidget({ logEvent }: ChatWidgetProps) {
         messageLength: assistantReply.length,
       });
 
-      setMessages((prev) => [
-        ...prev,
-        { role: "assistant", content: assistantReply },
-      ]);
+      setMessages((prev) => [...prev, { role: "assistant", content: assistantReply }]);
     } catch {
       logEvent?.("chat_error", {
         error: "chat_service_unreachable",
@@ -143,7 +150,7 @@ export function ChatWidget({ logEvent }: ChatWidgetProps) {
         <div
           ref={panelRef}
           onKeyDown={onPanelKeyDown}
-          className="flex h-[70vh] max-h-[560px] w-[calc(100vw-2rem)] max-w-sm flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl"
+          className="chat-panel-enter flex h-[70vh] max-h-[560px] w-[calc(100vw-2rem)] max-w-sm flex-col overflow-hidden rounded-2xl border border-slate-300 bg-white/90 shadow-2xl shadow-slate-900/20 backdrop-blur-md"
           role="dialog"
           aria-modal="true"
           aria-label="Chat assistant"
@@ -153,18 +160,18 @@ export function ChatWidget({ logEvent }: ChatWidgetProps) {
             <button
               type="button"
               onClick={closeWidget}
-              className="rounded-md p-1 text-slate-500 hover:bg-slate-100 hover:text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="btn-micro rounded-md p-1 text-slate-500 hover:bg-slate-100 hover:text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
               aria-label="Close chat"
             >
               ✕
             </button>
           </div>
 
-          <div className="flex-1 space-y-3 overflow-y-auto bg-slate-50 px-4 py-3">
+          <div className="flex-1 space-y-3 overflow-y-auto bg-slate-50/80 px-4 py-3">
             {messages.map((message, index) => (
               <div
                 key={`${message.role}-${index}`}
-                className={`max-w-[85%] rounded-2xl px-3 py-2 text-sm leading-relaxed ${
+                className={`max-w-[85%] rounded-2xl px-3 py-2 text-sm leading-relaxed transition-transform ${
                   message.role === "user"
                     ? "ml-auto rounded-br-sm bg-blue-600 text-white"
                     : "rounded-bl-sm border border-slate-200 bg-white text-slate-700"
@@ -203,7 +210,7 @@ export function ChatWidget({ logEvent }: ChatWidgetProps) {
               <button
                 type="submit"
                 disabled={!canSend}
-                className="rounded-xl bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+                className="btn-micro rounded-xl bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
               >
                 Send
               </button>
@@ -215,7 +222,7 @@ export function ChatWidget({ logEvent }: ChatWidgetProps) {
           ref={openButtonRef}
           type="button"
           onClick={() => setIsOpen(true)}
-          className="inline-flex items-center gap-2 rounded-full bg-blue-600 px-4 py-3 text-sm font-medium text-white shadow-lg shadow-blue-600/25 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+          className="btn-micro inline-flex items-center gap-2 rounded-full bg-blue-600 px-4 py-3 text-sm font-medium text-white shadow-lg shadow-blue-600/25 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
           aria-label="Open chat assistant"
         >
           <span aria-hidden>💬</span>
