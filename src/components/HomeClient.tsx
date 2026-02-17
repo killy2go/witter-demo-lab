@@ -76,28 +76,55 @@ export default function Page() {
     [events]
   );
 
-  const successfulCheckouts = useMemo(
-    () => events.filter((event) => event.type === "stripe_checkout_success").length,
-    [events]
-  );
-
-  const revenueToday = successfulCheckouts * 149;
-  const performanceScore = Math.max(90, 98 - Math.min(events.length / 7, 7));
+  const [revenueToday, setRevenueToday] = useState(0);
 
   useEffect(() => {
-    const stripeResult = searchParams.get("stripe");
-    if (!stripeResult) return;
+    const readRevenue = () => {
+      const stored = Number(localStorage.getItem("demo_revenue") || 0);
+      setRevenueToday((prev) => {
+        if (stored > prev) {
+          setRevenuePulse(true);
+          setShowConfetti(true);
+          window.setTimeout(() => {
+            setRevenuePulse(false);
+            setShowConfetti(false);
+          }, 1400);
+        }
+        return stored;
+      });
+    };
 
-    if (stripeResult === "success") {
-      window.setTimeout(() => emitEvent("stripe_checkout_success"), 0);
-    }
-    if (stripeResult === "cancel") window.setTimeout(() => emitEvent("stripe_checkout_cancel"), 0);
+    readRevenue();
 
-    router.replace("/", { scroll: false });
-  }, [searchParams, emitEvent, router]);
+    window.addEventListener("focus", readRevenue);
+    const onVis = () => {
+      if (document.visibilityState === "visible") readRevenue();
+    };
+    document.addEventListener("visibilitychange", onVis);
+
+    return () => {
+      window.removeEventListener("focus", readRevenue);
+      document.removeEventListener("visibilitychange", onVis);
+    };
+  }, []);
+    
+  const performanceScore = Math.max(90, 98 - Math.min(events.length / 7, 7));
+
+
 
   return (
     <main className="demo-bg">
+        {showConfetti && (
+          <div className="pointer-events-none fixed inset-x-0 top-12 z-30 flex justify-center gap-3">
+            {[...Array(8)].map((_, i) => (
+              <span
+                key={i}
+                className="confetti-dot"
+                style={{ animationDelay: `${i * 80}ms` }}
+              />
+            ))}
+          </div>
+        )}
       <FloatingMetricsBar
         performanceScore={Math.round(performanceScore)}
         revenueToday={revenueToday}
@@ -110,17 +137,6 @@ export default function Page() {
       <div className="relative mx-auto w-full max-w-6xl px-4 py-10 sm:px-6">
         <BuildBanner onRedeploy={() => emitEvent("ci_redeploy_clicked")} />
 
-        {showConfetti && (
-          <div className="pointer-events-none fixed inset-x-0 top-12 z-30 flex justify-center gap-3">
-            {[...Array(8)].map((_, i) => (
-              <span
-                key={i}
-                className="confetti-dot"
-                style={{ animationDelay: `${i * 80}ms` }}
-              />
-            ))}
-          </div>
-        )}
 
         <header className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-3">

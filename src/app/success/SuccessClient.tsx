@@ -5,16 +5,30 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useEventLog } from "@/lib/useEventLog";
 
+const AMOUNT_EUR = 19;
+
 export default function SuccessClient() {
   const { logEvent } = useEventLog();
   const sp = useSearchParams();
   const sessionId = sp.get("session_id");
 
   useEffect(() => {
-    logEvent("stripe_checkout_success", { sessionId });
+    // ✅ prevent double counting if user refreshes / revisits
+    const revenueKey = sessionId ? `demo_revenue_session_${sessionId}` : null;
+    if (revenueKey && localStorage.getItem(revenueKey)) {
+      // already counted
+    } else {
+      const current = Number(localStorage.getItem("demo_revenue") || 0);
+      localStorage.setItem("demo_revenue", String(current + AMOUNT_EUR));
+      if (revenueKey) localStorage.setItem(revenueKey, "1");
+    }
+
+    logEvent("stripe_checkout_success", { sessionId, amount: AMOUNT_EUR });
+
     const t = setTimeout(() => {
       window.location.href = "/";
     }, 5000);
+
     return () => clearTimeout(t);
   }, [logEvent, sessionId]);
 

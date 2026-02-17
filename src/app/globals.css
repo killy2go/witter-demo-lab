@@ -44,11 +44,34 @@ body {
 }
 
 .confetti-dot {
-  width: 6px;
-  height: 6px;
+  width: 8px;
+  height: 8px;
   border-radius: 9999px;
-  background: rgba(110, 231, 183, 0.8);
-  animation: confetti-fall 860ms ease-out forwards;
+  background: linear-gradient(135deg, #34d399, #22c55e);
+  animation: confetti-fall 900ms ease-out forwards;
+}
+
+.confetti-dot:nth-child(2n) {
+  background: linear-gradient(135deg, #60a5fa, #3b82f6);
+}
+
+.confetti-dot:nth-child(3n) {
+  background: linear-gradient(135deg, #f59e0b, #f97316);
+}
+
+.confetti-dot:nth-child(4n) {
+  background: linear-gradient(135deg, #f472b6, #ec4899);
+}
+
+@keyframes confetti-fall {
+  0% {
+    transform: translateY(-10px) scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(40px) scale(0.6);
+    opacity: 0;
+  }
 }
 
 @keyframes panel-in {
@@ -84,16 +107,4 @@ body {
   }
 }
 
-@keyframes confetti-fall {
-  from {
-    opacity: 0;
-    transform: translateY(0) scale(0.8);
-  }
-  20% {
-    opacity: 1;
-  }
-  to {
-    opacity: 0;
-    transform: translateY(24px) scale(1);
-  }
-}
+
