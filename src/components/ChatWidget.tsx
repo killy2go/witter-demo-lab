@@ -7,10 +7,14 @@ type ChatMessage = {
   content: string;
 };
 
+type ChatWidgetProps = {
+  logEvent?: (type: string, meta?: Record<string, unknown>) => void;
+};
+
 const FOCUSABLE_SELECTOR =
   'a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex="-1"])';
 
-export function ChatWidget() {
+export function ChatWidget({ logEvent }: ChatWidgetProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([
@@ -86,6 +90,10 @@ export function ChatWidget() {
     const userMessage: ChatMessage = { role: "user", content: message };
     const updatedMessages = [...messages, userMessage];
 
+    logEvent?.("chat_message_sent", {
+      messageLength: message.length,
+    });
+
     setMessages(updatedMessages);
     setInput("");
     setError(null);
@@ -103,15 +111,26 @@ export function ChatWidget() {
       const payload = await response.json();
 
       if (!response.ok) {
+        logEvent?.("chat_error", {
+          error: payload?.error || "chat_request_failed",
+        });
         setError(payload?.error || "Chat request failed. Please try again.");
         return;
       }
 
+      const assistantReply = payload.reply || "I’m sorry, I couldn’t generate a response.";
+      logEvent?.("chat_response_received", {
+        messageLength: assistantReply.length,
+      });
+
       setMessages((prev) => [
         ...prev,
-        { role: "assistant", content: payload.reply || "I’m sorry, I couldn’t generate a response." },
+        { role: "assistant", content: assistantReply },
       ]);
     } catch {
+      logEvent?.("chat_error", {
+        error: "chat_service_unreachable",
+      });
       setError("Unable to reach chat service. Please check your connection and retry.");
     } finally {
       setIsLoading(false);
