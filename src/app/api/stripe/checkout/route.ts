@@ -29,13 +29,13 @@ export async function POST() {
     });
 
     return NextResponse.json({ url: session.url });
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error("STRIPE_ERROR:", err);
     return NextResponse.json(
       {
-        error: err?.message ?? "Stripe checkout failed",
-        type: err?.type,
-        code: err?.code,
+        error: err instanceof Error ? err.message : "Stripe checkout failed",
+        type: typeof err === "object" && err && "type" in err ? (err as { type?: string }).type : undefined,
+        code: typeof err === "object" && err && "code" in err ? (err as { code?: string }).code : undefined,
       },
       { status: 500 }
     );
