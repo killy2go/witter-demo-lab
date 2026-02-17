@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEventLog } from "@/lib/useEventLog";
 import { EventConsole } from "@/components/EventConsole";
+import { ChatWidget } from "@/components/ChatWidget";
 
 export default function Page() {
   const { events, logEvent, clearEvents } = useEventLog();
@@ -301,6 +302,7 @@ export default function Page() {
           © {new Date().getFullYear()} Witter Labs · Demo only
         </footer>
       </div>
+      <ChatWidget />
     </main>
   );
 }

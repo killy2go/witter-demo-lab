@@ -1,0 +1,518 @@
+diff --git a/.env.example b/.env.example
+new file mode 100644
+index 0000000000000000000000000000000000000000..464591f729b6e9ea985f772e5986f92abd6e5c1b
+--- /dev/null
++++ b/.env.example
+@@ -0,0 +1,2 @@
++OPENAI_API_KEY=
++OPENAI_MODEL=gpt-4o-mini
+diff --git a/README.md b/README.md
+index e215bc4ccf138bbc38ad58ad57e92135484b3c0f..5a435590ae543070671beb6a596beb4a9c3e9c6c 100644
+--- a/README.md
++++ b/README.md
+@@ -12,25 +12,33 @@ yarn dev
+ pnpm dev
+ # or
+ bun dev
+ ```
+ 
+ Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+ 
+ You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+ 
+ This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+ 
+ ## Learn More
+ 
+ To learn more about Next.js, take a look at the following resources:
+ 
+ - [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
+ - [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+ 
+ You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+ 
+ ## Deploy on Vercel
+ 
+ The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+ 
+ Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
++
++## Chatbot Setup
++
++1. Copy `.env.example` to `.env.local`.
++2. Set `OPENAI_API_KEY` with your server-side API key.
++3. (Optional) change `OPENAI_MODEL` if you want a different model than `gpt-4o-mini`.
++
++The floating chat widget uses `/api/chat`, validates requests with Zod, and rate-limits requests per IP (10 requests per 10 minutes).
+diff --git a/package.json b/package.json
+index fb52c9462ba6464a9efad68085425fdb6884a45e..bcfb3308bc32e36cd164d425cae7807a76620626 100644
+--- a/package.json
++++ b/package.json
+@@ -1,29 +1,30 @@
+ {
+   "name": "witter-demo-lab",
+   "version": "0.1.0",
+   "private": true,
+   "scripts": {
+     "dev": "next dev",
+     "build": "next build",
+     "start": "next start",
+     "lint": "eslint"
+   },
+   "dependencies": {
+     "next": "16.0.10",
+     "react": "19.2.1",
+     "react-dom": "19.2.1",
+-    "stripe": "^20.1.0"
++    "stripe": "^20.1.0",
++    "zod": "^3.24.1"
+   },
+   "devDependencies": {
+     "@tailwindcss/postcss": "^4",
+     "@types/node": "^20",
+     "@types/react": "^19",
+     "@types/react-dom": "^19",
+     "autoprefixer": "^10.4.23",
+     "eslint": "^9",
+     "eslint-config-next": "16.0.10",
+     "postcss": "^8.5.6",
+     "tailwindcss": "^3.4.17",
+     "typescript": "^5"
+   }
+ }
+diff --git a/src/app/api/chat/route.ts b/src/app/api/chat/route.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..6d8146da8379eff9a66ad7077436275828d92acd
+--- /dev/null
++++ b/src/app/api/chat/route.ts
+@@ -0,0 +1,149 @@
++import { NextRequest, NextResponse } from "next/server";
++import { z } from "zod";
++
++const requestSchema = z.object({
++  messages: z
++    .array(
++      z.object({
++        role: z.enum(["user", "assistant", "system"]),
++        content: z.string().min(1).max(4000),
++      })
++    )
++    .min(1)
++    .max(20),
++});
++
++type RateLimitEntry = {
++  count: number;
++  resetAt: number;
++};
++
++const WINDOW_MS = 10 * 60 * 1000;
++const MAX_REQUESTS = 10;
++const rateLimitStore = new Map<string, RateLimitEntry>();
++
++function getClientIp(request: NextRequest) {
++  const forwardedFor = request.headers.get("x-forwarded-for");
++  if (forwardedFor) {
++    return forwardedFor.split(",")[0]?.trim() || "unknown";
++  }
++
++  return request.headers.get("x-real-ip") || "unknown";
++}
++
++function checkRateLimit(ip: string) {
++  const now = Date.now();
++  const entry = rateLimitStore.get(ip);
++
++  if (!entry || entry.resetAt <= now) {
++    rateLimitStore.set(ip, { count: 1, resetAt: now + WINDOW_MS });
++    return { allowed: true, remaining: MAX_REQUESTS - 1, resetAt: now + WINDOW_MS };
++  }
++
++  if (entry.count >= MAX_REQUESTS) {
++    return { allowed: false, remaining: 0, resetAt: entry.resetAt };
++  }
++
++  entry.count += 1;
++  rateLimitStore.set(ip, entry);
++
++  return {
++    allowed: true,
++    remaining: Math.max(0, MAX_REQUESTS - entry.count),
++    resetAt: entry.resetAt,
++  };
++}
++
++export async function POST(request: NextRequest) {
++  const openAiApiKey = process.env.OPENAI_API_KEY;
++  if (!openAiApiKey) {
++    return NextResponse.json(
++      {
++        error:
++          "Server is missing OPENAI_API_KEY. Add it to your environment variables and restart the server.",
++      },
++      { status: 500 }
++    );
++  }
++
++  const ip = getClientIp(request);
++  const rateLimit = checkRateLimit(ip);
++  if (!rateLimit.allowed) {
++    return NextResponse.json(
++      {
++        error:
++          "Rate limit exceeded. You can send up to 10 chat requests every 10 minutes. Please try again later.",
++      },
++      {
++        status: 429,
++        headers: {
++          "Retry-After": Math.ceil((rateLimit.resetAt - Date.now()) / 1000).toString(),
++        },
++      }
++    );
++  }
++
++  let body: z.infer<typeof requestSchema>;
++  try {
++    const parsed = requestSchema.safeParse(await request.json());
++    if (!parsed.success) {
++      return NextResponse.json(
++        { error: "Invalid request body.", details: parsed.error.flatten() },
++        { status: 400 }
++      );
++    }
++
++    body = parsed.data;
++  } catch {
++    return NextResponse.json(
++      { error: "Invalid JSON payload." },
++      { status: 400 }
++    );
++  }
++
++  const model = process.env.OPENAI_MODEL || "gpt-4o-mini";
++
++  try {
++    const openAiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
++      method: "POST",
++      headers: {
++        "Content-Type": "application/json",
++        Authorization: `Bearer ${openAiApiKey}`,
++      },
++      body: JSON.stringify({
++        model,
++        temperature: 0.7,
++        messages: body.messages,
++      }),
++    });
++
++    const payload = await openAiResponse.json();
++
++    if (!openAiResponse.ok) {
++      return NextResponse.json(
++        {
++          error:
++            payload?.error?.message ||
++            "Failed to get a response from OpenAI. Please try again.",
++        },
++        { status: openAiResponse.status }
++      );
++    }
++
++    const reply = payload?.choices?.[0]?.message?.content;
++
++    if (!reply || typeof reply !== "string") {
++      return NextResponse.json(
++        { error: "OpenAI returned an empty response." },
++        { status: 502 }
++      );
++    }
++
++    return NextResponse.json({ reply, model });
++  } catch {
++    return NextResponse.json(
++      { error: "Unable to reach OpenAI service right now. Please try again shortly." },
++      { status: 502 }
++    );
++  }
++}
+diff --git a/src/app/page.tsx b/src/app/page.tsx
+index 8aaba4f5b300954909c44fb51117423d6dde4676..46ccc5fd69a60702ed143eede4c06442b9bed292 100644
+--- a/src/app/page.tsx
++++ b/src/app/page.tsx
+@@ -1,31 +1,32 @@
+ "use client";
+ 
+ import { useEffect, useState } from "react";
+ import { useRouter, useSearchParams } from "next/navigation";
+ import { useEventLog } from "@/lib/useEventLog";
+ import { EventConsole } from "@/components/EventConsole";
++import { ChatWidget } from "@/components/ChatWidget";
+ 
+ export default function Page() {
+   const { events, logEvent, clearEvents } = useEventLog();
+   const click = (type: string, meta?: Record<string, any>) => () => logEvent(type, meta);
+ 
+   const searchParams = useSearchParams();
+   const router = useRouter();
+   const [checkoutLoading, setCheckoutLoading] = useState(false);
+ 
+   const [leadName, setLeadName] = useState("");
+   const [leadEmail, setLeadEmail] = useState("");
+   const [leadCompany, setLeadCompany] = useState("");
+   const [leadStatus, setLeadStatus] = useState<"idle" | "success" | "error">("idle");
+   const [leadLoading, setLeadLoading] = useState(false);
+ 
+   const [email, setEmail] = useState("");
+   const [newsletterLoading, setNewsletterLoading] = useState(false);
+   const [newsletterSuccess, setNewsletterSuccess] = useState(false);
+ 
+   const isValidEmail = (value: string) =>
+     /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+ 
+   useEffect(() => {
+     const stripeResult = searchParams.get("stripe");
+     if (!stripeResult) return;
+@@ -279,28 +280,29 @@ export default function Page() {
+ 
+             <EventConsole events={events} onClear={clearEvents} />
+           </div>
+         </section>
+ 
+         {/* How */}
+         <section
+           id="how"
+           className="mt-10 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"
+         >
+           <h3 className="font-semibold text-slate-900">
+             How this demo is built
+           </h3>
+           <ul className="mt-4 space-y-1 text-sm text-slate-700">
+             <li>• Next.js (App Router)</li>
+             <li>• Tailwind CSS</li>
+             <li>• Stripe (Testmode)</li>
+             <li>• Event Tracking (in-app)</li>
+           </ul>
+         </section>
+ 
+         <footer className="mt-10 pb-10 text-xs text-slate-500">
+           © {new Date().getFullYear()} Witter Labs · Demo only
+         </footer>
+       </div>
++      <ChatWidget />
+     </main>
+   );
+ }
+diff --git a/src/components/ChatWidget.tsx b/src/components/ChatWidget.tsx
+new file mode 100644
+index 0000000000000000000000000000000000000000..7bafc7f5997673262b90c46cd2fdb123af03986a
+--- /dev/null
++++ b/src/components/ChatWidget.tsx
+@@ -0,0 +1,208 @@
++"use client";
++
++import { FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
++
++type ChatMessage = {
++  role: "user" | "assistant";
++  content: string;
++};
++
++const FOCUSABLE_SELECTOR =
++  'a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex="-1"])';
++
++export function ChatWidget() {
++  const [isOpen, setIsOpen] = useState(false);
++  const [input, setInput] = useState("");
++  const [messages, setMessages] = useState<ChatMessage[]>([
++    {
++      role: "assistant",
++      content: "Hi! I’m your demo assistant. Ask me anything about this project.",
++    },
++  ]);
++  const [isLoading, setIsLoading] = useState(false);
++  const [error, setError] = useState<string | null>(null);
++
++  const panelRef = useRef<HTMLDivElement>(null);
++  const inputRef = useRef<HTMLInputElement>(null);
++  const openButtonRef = useRef<HTMLButtonElement>(null);
++  const messagesEndRef = useRef<HTMLDivElement>(null);
++
++  useEffect(() => {
++    if (!isOpen) return;
++
++    const timer = window.setTimeout(() => {
++      inputRef.current?.focus();
++    }, 30);
++
++    return () => window.clearTimeout(timer);
++  }, [isOpen]);
++
++  useEffect(() => {
++    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
++  }, [messages, isLoading]);
++
++  const closeWidget = () => {
++    setIsOpen(false);
++    window.setTimeout(() => {
++      openButtonRef.current?.focus();
++    }, 0);
++  };
++
++  const onPanelKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
++    if (event.key === "Escape") {
++      event.preventDefault();
++      closeWidget();
++      return;
++    }
++
++    if (event.key !== "Tab") return;
++
++    const focusable = panelRef.current?.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR);
++    if (!focusable || focusable.length === 0) return;
++
++    const first = focusable[0];
++    const last = focusable[focusable.length - 1];
++
++    if (event.shiftKey && document.activeElement === first) {
++      event.preventDefault();
++      last.focus();
++      return;
++    }
++
++    if (!event.shiftKey && document.activeElement === last) {
++      event.preventDefault();
++      first.focus();
++    }
++  };
++
++  const canSend = useMemo(() => input.trim().length > 0 && !isLoading, [input, isLoading]);
++
++  const onSubmit = async (event: FormEvent) => {
++    event.preventDefault();
++
++    const message = input.trim();
++    if (!message || isLoading) return;
++
++    const userMessage: ChatMessage = { role: "user", content: message };
++    const updatedMessages = [...messages, userMessage];
++
++    setMessages(updatedMessages);
++    setInput("");
++    setError(null);
++    setIsLoading(true);
++
++    try {
++      const response = await fetch("/api/chat", {
++        method: "POST",
++        headers: {
++          "Content-Type": "application/json",
++        },
++        body: JSON.stringify({ messages: updatedMessages }),
++      });
++
++      const payload = await response.json();
++
++      if (!response.ok) {
++        setError(payload?.error || "Chat request failed. Please try again.");
++        return;
++      }
++
++      setMessages((prev) => [
++        ...prev,
++        { role: "assistant", content: payload.reply || "I’m sorry, I couldn’t generate a response." },
++      ]);
++    } catch {
++      setError("Unable to reach chat service. Please check your connection and retry.");
++    } finally {
++      setIsLoading(false);
++    }
++  };
++
++  return (
++    <div className="fixed bottom-4 right-4 z-50 sm:bottom-6 sm:right-6">
++      {isOpen ? (
++        <div
++          ref={panelRef}
++          onKeyDown={onPanelKeyDown}
++          className="flex h-[70vh] max-h-[560px] w-[calc(100vw-2rem)] max-w-sm flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl"
++          role="dialog"
++          aria-modal="true"
++          aria-label="Chat assistant"
++        >
++          <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
++            <h2 className="text-sm font-semibold text-slate-900">Chat Assistant</h2>
++            <button
++              type="button"
++              onClick={closeWidget}
++              className="rounded-md p-1 text-slate-500 hover:bg-slate-100 hover:text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
++              aria-label="Close chat"
++            >
++              ✕
++            </button>
++          </div>
++
++          <div className="flex-1 space-y-3 overflow-y-auto bg-slate-50 px-4 py-3">
++            {messages.map((message, index) => (
++              <div
++                key={`${message.role}-${index}`}
++                className={`max-w-[85%] rounded-2xl px-3 py-2 text-sm leading-relaxed ${
++                  message.role === "user"
++                    ? "ml-auto rounded-br-sm bg-blue-600 text-white"
++                    : "rounded-bl-sm border border-slate-200 bg-white text-slate-700"
++                }`}
++              >
++                {message.content}
++              </div>
++            ))}
++            {isLoading && (
++              <div className="w-fit rounded-2xl rounded-bl-sm border border-slate-200 bg-white px-3 py-2 text-sm text-slate-500">
++                Assistant is typing…
++              </div>
++            )}
++            <div ref={messagesEndRef} />
++          </div>
++
++          {error && (
++            <div className="mx-4 mt-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
++              {error}
++            </div>
++          )}
++
++          <form onSubmit={onSubmit} className="border-t border-slate-200 p-3">
++            <label htmlFor="chat-input" className="sr-only">
++              Type your message
++            </label>
++            <div className="flex items-center gap-2">
++              <input
++                id="chat-input"
++                ref={inputRef}
++                value={input}
++                onChange={(event) => setInput(event.target.value)}
++                placeholder="Ask a question..."
++                className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
++              />
++              <button
++                type="submit"
++                disabled={!canSend}
++                className="rounded-xl bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
++              >
++                Send
++              </button>
++            </div>
++          </form>
++        </div>
++      ) : (
++        <button
++          ref={openButtonRef}
++          type="button"
++          onClick={() => setIsOpen(true)}
++          className="inline-flex items-center gap-2 rounded-full bg-blue-600 px-4 py-3 text-sm font-medium text-white shadow-lg shadow-blue-600/25 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
++          aria-label="Open chat assistant"
++        >
++          <span aria-hidden>💬</span>
++          <span>Chat</span>
++        </button>
++      )}
++    </div>
++  );
++}
