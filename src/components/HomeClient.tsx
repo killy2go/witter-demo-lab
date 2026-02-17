@@ -350,10 +350,14 @@ export default function Page() {
         <section id="how" className="mt-10 rounded-2xl border border-slate-700/40 bg-slate-900/85 p-6 shadow-md">
           <h3 className="font-semibold text-white">How this demo is built</h3>
           <ul className="mt-4 space-y-1 text-sm text-slate-200">
-            <li>• Next.js (App Router)</li>
-            <li>• Tailwind CSS</li>
-            <li>• Stripe (Testmode)</li>
-            <li>• Event Tracking (in-app)</li>
+            <li>• Next.js App Router (Server + Client Components)</li>
+            <li>• Suspense-based CSR handling for dynamic routes</li>
+            <li>• Stripe Checkout Integration (Testmode)</li>
+            <li>• AI Assistant powered by OpenAI API</li>
+            <li>• Real-time Event Tracking Console</li>
+            <li>• Revenue Simulation & Conversion Metrics</li>
+            <li>• Modular Architecture with centralized state</li>
+            <li>• Production-ready deployment on Vercel</li>
           </ul>
         </section>
 
